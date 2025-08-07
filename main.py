@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import openai
@@ -7,12 +7,14 @@ import numpy as np
 import requests
 import fitz  # PyMuPDF
 import os
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # === CONFIG ===
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Set your OpenAI key in environment variables
 MODEL = "gpt-4"
 
 app = FastAPI()
+security = HTTPBearer(auto_error=False)
 
 # === DATA MODELS ===
 class HackRxRequest(BaseModel):
@@ -24,7 +26,7 @@ class HackRxResponse(BaseModel):
 
 # === UTILS ===
 def extract_text_from_pdf(pdf_url: str) -> str:
-    response = requests.get(pdf_url)
+    response = requests.get(pdf_url, timeout=30)
     if response.status_code != 200:
         raise HTTPException(status_code=400, detail="Failed to fetch document")
 
@@ -49,12 +51,12 @@ def build_faiss_index(chunks):
     embeddings = get_embeddings(chunks)
     dim = len(embeddings[0])
     index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings))
+    index.add(np.array(embeddings, dtype=np.float32))
     return index, embeddings
 
 def find_top_chunks(question, chunks, index, chunk_embeddings, k=3):
     q_embed = get_embeddings([question])[0]
-    D, I = index.search(np.array([q_embed]), k)
+    D, I = index.search(np.array([q_embed], dtype=np.float32), k)
     return [chunks[i] for i in I[0]]
 
 def generate_answer(context, question):
@@ -75,8 +77,12 @@ Question:
 
 # === ROUTE ===
 @app.post("/hackrx/run", response_model=HackRxResponse)
-def run_hackrx(req: HackRxRequest, authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
+def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or credentials.credentials != "test_token"
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     raw_text = extract_text_from_pdf(req.documents)
