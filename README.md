@@ -2,74 +2,59 @@
 
 LLM-powered API that answers questions from a provided PDF document using embeddings (FAISS) and GPT-4.
 
-## Quickstart
+## Endpoints
+- `GET /` – Welcome/info
+- `GET /healthz` – Health check (200 OK)
+- `POST /hackrx/run` – Run Q&A (requires `Authorization: Bearer test_token`)
 
-1) Create a virtual env and install deps
+## Quick demo (under 2 minutes)
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
+1) Open Swagger UI
+   - `https://hackrx-api-5l67.onrender.com/docs`
+   - Click Authorize → enter `test_token` → Authorize → Close
 
-2) Configure environment
+2) Try the API
+   - Expand `POST /hackrx/run` → Try it out
+   - Use this body (or your own public PDF URL):
+     ```json
+     {
+       "documents": "https://hackrx.blob.core.windows.net/assets/policy.pdf?...",
+       "questions": [
+         "What is the grace period for premium payment?",
+         "Is maternity covered?",
+         "What is the waiting period for cataract?"
+       ]
+     }
+     ```
+   - Execute → Show the answers
 
-Create a `.env` (or export) with your OpenAI key:
+3) cURL
+   ```bash
+   curl -X POST "https://hackrx-api-5l67.onrender.com/hackrx/run" \
+     -H "Authorization: Bearer test_token" \
+     -H "Content-Type: application/json" \
+     -d '{"documents":"https://hackrx.blob.core.windows.net/assets/policy.pdf?...","questions":["What is the grace period for premium payment?","Is maternity covered?","What is the waiting period for cataract?"]}'
+   ```
 
-```bash
-export OPENAI_API_KEY=your_key_here
-```
+## Render deployment notes
+- Service URL root (`/`) now shows a welcome JSON message with instructions
+- Health check endpoint: `/healthz`
+- Ensure env var `OPENAI_API_KEY` is set
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
-Alternatively copy `.env.example` to `.env` and export it in your shell.
+## How it works (talk track)
+- Extracts text from the PDF (PyMuPDF)
+- Splits into chunks; embeds with OpenAI
+- FAISS index for semantic retrieval
+- Retrieves top chunks per question
+- GPT-4 synthesizes grounded answers
+- Security via HTTP Bearer (`test_token`) for demo
 
-3) Run the server
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-4) Open Swagger UI
-
-Visit `http://127.0.0.1:8000/docs`
-
-- Click the Authorize button
-- For the HTTP bearer token field, enter only: `test_token`
-  - Swagger will add the `Bearer` prefix automatically
-- Click Authorize and close the modal
-
-5) Try the endpoint
-
-Use the sample body below or `test_payload.json`:
-
-```json
-{
-  "documents": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-  "questions": ["Is maternity covered?", "What is the waiting period?"]
-}
-```
-
-### curl example
-
-```bash
-curl -X POST "http://127.0.0.1:8000/hackrx/run" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer test_token" \
-  -d @test_payload.json
-```
-
-If the Authorization header is missing or incorrect, the API returns `401 Unauthorized`.
-
-## How it works
-
-- Extracts text from the provided PDF URL (PyMuPDF)
-- Splits into chunks and embeds with `text-embedding-ada-002`
-- Builds a FAISS index and retrieves top-matching chunks per question
-- Calls GPT-4 to produce answers grounded in retrieved context
+## Performance tips
+- Use a leaner embedding model (`text-embedding-3-small`) to keep latency <10s
+- Cache embeddings for repeated documents (future work)
+- Handle quota gracefully (TF‑IDF fallback included)
 
 ## Environment
-
-- `OPENAI_API_KEY` must be set in your shell before calling the endpoint
-
-## Notes
-
-- This project uses HTTP Bearer in Swagger. Enter only the token value `test_token` in the Authorize modal.
-- For large PDFs, first request may take longer due to embedding.
+- Required: `OPENAI_API_KEY`
+- Optional: `CHAT_MODEL` (default `gpt-4`), `EMBEDDING_MODEL` (default `text-embedding-3-small`)
