@@ -1,9 +1,10 @@
 fastapi
 uvicorn
-openai
+openai==0.28.1
 faiss-cpu
 numpy
 requests
 PyMuPDF
 python-multipart
 pydantic
+scikit-learn

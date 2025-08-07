@@ -1,0 +1,7 @@
+{
+  "documents": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+  "questions": [
+    "Is maternity covered?",
+    "What is the waiting period?"
+  ]
+}
