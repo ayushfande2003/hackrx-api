@@ -7,3 +7,4 @@ requests
 PyMuPDF
 python-multipart
 pydantic
+scikit-learn

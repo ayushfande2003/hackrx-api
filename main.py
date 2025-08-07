@@ -9,10 +9,13 @@ import fitz  # PyMuPDF
 import os
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from requests.exceptions import RequestException
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # === CONFIG ===
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Set your OpenAI key in environment variables
-MODEL = "gpt-4"
+MODEL = os.getenv("CHAT_MODEL", "gpt-4")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI()
 security = HTTPBearer(auto_error=False)
@@ -60,7 +63,7 @@ def chunk_text(text, chunk_size=500):
 def get_embeddings(texts):
     ensure_openai_key_present()
     try:
-        response = openai.Embedding.create(input=texts, model="text-embedding-ada-002")
+        response = openai.Embedding.create(input=texts, model=EMBEDDING_MODEL)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Embedding error: {exc}")
     return [np.array(d["embedding"], dtype=np.float32) for d in response["data"]]
@@ -97,6 +100,35 @@ Question:
         raise HTTPException(status_code=502, detail=f"LLM error: {exc}")
     return completion.choices[0].message.content.strip()
 
+def find_top_chunks_tfidf(question: str, chunks, k: int = 3):
+    vectorizer = TfidfVectorizer(stop_words="english")
+    matrix = vectorizer.fit_transform(chunks + [question])
+    chunk_matrix = matrix[:-1]
+    question_vector = matrix[-1]
+    similarities = cosine_similarity(question_vector, chunk_matrix).flatten()
+    top_indices = np.argsort(similarities)[-k:][::-1]
+    return [chunks[i] for i in top_indices]
+
+
+def naive_answer_from_context(context: str, question: str, max_chars: int = 600) -> str:
+    sentences = [s.strip() for s in context.replace("\n", " ").split(".") if s.strip()]
+    keywords = [w.lower() for w in question.split() if len(w) > 3]
+    ranked = []
+    for sentence in sentences:
+        score = sum(1 for kw in keywords if kw in sentence.lower())
+        ranked.append((score, sentence))
+    ranked.sort(reverse=True)
+    answer_parts = []
+    total_len = 0
+    for _, sent in ranked[:5]:
+        if total_len + len(sent) + 2 > max_chars:
+            break
+        answer_parts.append(sent)
+        total_len += len(sent) + 2
+    if not answer_parts:
+        answer_parts = sentences[:2]
+    return ". ".join(answer_parts).strip() or context[:max_chars]
+
 # === ROUTE ===
 @app.post("/hackrx/run", response_model=HackRxResponse)
 def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -109,13 +141,30 @@ def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = D
 
     raw_text = extract_text_from_pdf(req.documents)
     chunks = chunk_text(raw_text)
-    index, embeddings = build_faiss_index(chunks)
+
+    use_faiss = True
+    try:
+        index, embeddings = build_faiss_index(chunks)
+    except HTTPException as exc:
+        if isinstance(exc.detail, str) and exc.detail.startswith("Embedding error"):
+            use_faiss = False
+        else:
+            raise
 
     answers = []
     for question in req.questions:
-        top_chunks = find_top_chunks(question, chunks, index, embeddings)
+        if use_faiss:
+            top_chunks = find_top_chunks(question, chunks, index, embeddings)
+        else:
+            top_chunks = find_top_chunks_tfidf(question, chunks)
         context = "\n".join(top_chunks)
-        answer = generate_answer(context, question)
+        try:
+            answer = generate_answer(context, question)
+        except HTTPException as exc:
+            if isinstance(exc.detail, str) and exc.detail.startswith("LLM error"):
+                answer = naive_answer_from_context(context, question)
+            else:
+                raise
         answers.append(answer)
 
     return {"answers": answers}
