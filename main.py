@@ -19,7 +19,20 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI()
 security = HTTPBearer(auto_error=False)
+@app.get("/")
+def root():
+    return {
+        "name": "HackRx Document QA API",
+        "version": "1.0",
+        "message": "Welcome to the HackRx Document QA API. Use /docs for Swagger UI.",
+        "docs_url": "/docs",
+        "post_endpoint": "/hackrx/run",
+        "auth": "Send Authorization: Bearer test_token",
+    }
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
 # === HELPERS ===
 def ensure_openai_key_present():
     if not openai.api_key:
