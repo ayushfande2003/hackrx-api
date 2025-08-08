@@ -11,7 +11,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from requests.exceptions import RequestException
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
+from dotenv import load_dotenv
+load_dotenv()
 # === CONFIG ===
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Set your OpenAI key in environment variables
 MODEL = os.getenv("CHAT_MODEL", "gpt-4")
@@ -19,6 +20,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI()
 security = HTTPBearer(auto_error=False)
+
 @app.get("/")
 def root():
     return {
@@ -27,12 +29,9 @@ def root():
         "message": "Welcome to the HackRx Document QA API. Use /docs for Swagger UI.",
         "docs_url": "/docs",
         "post_endpoint": "/hackrx/run",
-        "auth": "Send Authorization: Bearer test_token",
+        "auth": "Send Authorization: Bearer test_token"
     }
 
-@app.get("/healthz")
-def healthz():
-    return {"status": "ok"}
 # === HELPERS ===
 def ensure_openai_key_present():
     if not openai.api_key:
@@ -96,7 +95,9 @@ def find_top_chunks(question, chunks, index, chunk_embeddings, k=3):
 def generate_answer(context, question):
     ensure_openai_key_present()
     prompt = f"""
-You are a helpful assistant. Based on the following context, answer the question clearly:
+You are an insurance policy assistant. Use ONLY the text from the document below.
+Give a short, exact sentence or clause from the document that answers the question.
+Do NOT add explanations or extra words.
 
 Context:
 {context}
@@ -145,12 +146,15 @@ def naive_answer_from_context(context: str, question: str, max_chars: int = 600)
 # === ROUTE ===
 @app.post("/hackrx/run", response_model=HackRxResponse)
 def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if (
-        credentials is None
-        or credentials.scheme.lower() != "bearer"
-        or credentials.credentials != "test_token"
-    ):
+    if credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    auth_value = credentials.credentials.strip()
+    if credentials.scheme.lower() == "bearer" and auth_value.startswith("Bearer "):
+        auth_value = auth_value.replace("Bearer ", "").strip()
+
+    if auth_value != "test_token":
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid Token")
 
     raw_text = extract_text_from_pdf(req.documents)
     chunks = chunk_text(raw_text)
