@@ -11,6 +11,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from requests.exceptions import RequestException
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from fastapi.middleware.cors import CORSMiddleware
 
 # === CONFIG ===
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Set your OpenAI key in environment variables
@@ -18,6 +19,13 @@ MODEL = os.getenv("CHAT_MODEL", "gpt-4")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 security = HTTPBearer(auto_error=False)
 
 # Root welcome route and health check
@@ -145,16 +153,8 @@ def naive_answer_from_context(context: str, question: str, max_chars: int = 600)
         answer_parts = sentences[:2]
     return ". ".join(answer_parts).strip() or context[:max_chars]
 
-# === ROUTE ===
-@app.post("/hackrx/run", response_model=HackRxResponse)
-def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if (
-        credentials is None
-        or credentials.scheme.lower() != "bearer"
-        or credentials.credentials != "test_token"
-    ):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+# === CORE RUN LOGIC (shared) ===
+def run_hackrx_core(req: HackRxRequest) -> HackRxResponse:
     raw_text = extract_text_from_pdf(req.documents)
     chunks = chunk_text(raw_text)
 
@@ -167,7 +167,7 @@ def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = D
         else:
             raise
 
-    answers = []
+    answers: List[str] = []
     for question in req.questions:
         if use_faiss:
             top_chunks = find_top_chunks(question, chunks, index, embeddings)
@@ -184,3 +184,19 @@ def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = D
         answers.append(answer)
 
     return {"answers": answers}
+
+# === ROUTES ===
+@app.post("/hackrx/run", response_model=HackRxResponse)
+def run_hackrx(req: HackRxRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or credentials.credentials != "test_token"
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return run_hackrx_core(req)
+
+# No-auth webhook variant for submission systems that cannot send headers
+@app.post("/webhook/hackrx/run", response_model=HackRxResponse)
+def run_hackrx_webhook(req: HackRxRequest):
+    return run_hackrx_core(req)

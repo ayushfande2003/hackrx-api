@@ -1,11 +1,20 @@
 # HackRx Document Query API
 
-LLM-powered API that answers questions from a provided PDF document using embeddings (FAISS) and GPT-4.
+Endpoints
+- GET `/` – Welcome/info
+- GET `/healthz` – Health check
+- POST `/hackrx/run` – Auth: `Authorization: Bearer test_token`
+- POST `/webhook/hackrx/run` – No auth (for webhook submissions without headers)
 
-## Endpoints
-- `GET /` – Welcome/info
-- `GET /healthz` – Health check (200 OK)
-- `POST /hackrx/run` – Run Q&A (requires `Authorization: Bearer test_token`)
+Submission (Webhook URL)
+- Preferred: `https://<your-service>.onrender.com/hackrx/run`
+- If the platform cannot set headers, use: `https://<your-service>.onrender.com/webhook/hackrx/run`
+- Notes: Body schema `{ "documents": "<public PDF URL>", "questions": ["q1","q2"] }`
+
+Alternative hosting (quick)
+- Railway: Create New → Deploy from Repo → `pip install -r requirements.txt` / `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Fly.io: `fly launch` → set `PORT` and `OPENAI_API_KEY` → `fly deploy`
+- Hugging Face Spaces (Gradio/FastAPI): Create Space → Python → set Hardware free → add `requirements.txt` and `main.py` → Start command same as above.
 
 ## Quick demo (under 2 minutes)
 
