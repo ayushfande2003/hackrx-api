@@ -32,6 +32,10 @@ def root():
         "auth": "Send Authorization: Bearer test_token"
     }
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 # === HELPERS ===
 def ensure_openai_key_present():
     if not openai.api_key:
