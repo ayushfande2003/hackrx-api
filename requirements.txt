@@ -8,3 +8,4 @@ PyMuPDF
 python-multipart
 pydantic
 scikit-learn
+python-dotenv
